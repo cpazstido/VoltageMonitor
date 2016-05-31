@@ -1,0 +1,1239 @@
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+
+
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),m_openFlag(false),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    ui->mainToolBar->hide();//影藏工具条不要
+
+    //单选按钮
+    btnGroupConn=new QButtonGroup(this);
+    btnGroupConn->addButton(ui->radioButtonTCP,0);
+    btnGroupConn->addButton(ui->radioButtonSerial,1);
+    ui->radioButtonSerial->setChecked(true);
+    ui->groupBoxSerialParam->setVisible(true);
+    ui->groupBoxTCPParam->setVisible(false);
+    connect(ui->radioButtonTCP, SIGNAL(clicked()), this, SLOT(onRadioClick()));
+    connect(ui->radioButtonSerial, SIGNAL(clicked()), this, SLOT(onRadioClick()));
+
+    //设置串口
+    int i=0;
+    //    foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts()) {
+    //        qDebug() << "Name        : " << info.portName();
+    //        qDebug() << "Description : " << info.description();
+    //        qDebug() << "Manufacturer: " << info.manufacturer();
+
+    //        ui->comboBoxSerial->addItem(info.portName(), i);
+    //        i++;
+    //    }
+
+    //设置波特率
+    ui->comboBoxBitrate->addItem("1200",1200);
+    ui->comboBoxBitrate->addItem("2400",2400);
+    ui->comboBoxBitrate->addItem("4800",4800);
+    ui->comboBoxBitrate->addItem("9600",9600);
+
+    //数据位
+    ui->comboBoxDataBit->addItem("8",8);
+    ui->comboBoxDataBit->addItem("7",7);
+    ui->comboBoxDataBit->addItem("6",6);
+    ui->comboBoxDataBit->addItem("5",5);
+
+    //校验位
+    ui->comboBoxVerify->addItem("无",0);
+    ui->comboBoxVerify->addItem("奇",2);
+    ui->comboBoxVerify->addItem("偶",3);
+
+    //停止位
+    ui->comboBoxStopBit->addItem("1",1);
+    ui->comboBoxStopBit->addItem("2",2);
+
+    //设置时间
+    QTimer *timer=new QTimer(this);
+    //在界面上显示时间
+    connect(timer,SIGNAL(timeout()),this,SLOT(showTime()));
+    timer->start(500);
+
+    //参数设置 选择通信方式
+    ui->comboBoxConnMode->addItem("无线专网",0);
+    ui->comboBoxConnMode->addItem("短信通信",2);
+
+    //装置复位
+    ui->comboBoxReset->addItem("复位至正常模式",0);
+    ui->comboBoxReset->addItem("复位至调试模式",1);
+
+    m_server=new TCPServer(this);
+    m_serial=new SerialCommunication(this);
+    connect(m_server,SIGNAL(readBegin()),this,SLOT(slotReadBegin()));
+    connect(m_server,SIGNAL(readEnd()),this,SLOT(slotreadEnd()));
+    connect(m_server,SIGNAL(signalSendData(BYTE *, int)),this,SLOT(slotRevData(BYTE *, int)));
+
+
+    connect(m_serial,SIGNAL(readBegin()),this,SLOT(slotReadBegin()));
+    connect(m_serial,SIGNAL(readEnd()),this,SLOT(slotreadEnd()));
+
+    stSndProtocolHeader=new ProtocolHeader;
+    deviceID=new BYTE[17];
+    memset(deviceID,'\0',17);
+
+    //事件上报 表头
+    event_model = new QStandardItemModel(this);
+    event_model->setHorizontalHeaderItem(0, new QStandardItem(QObject::tr("监测点号")));
+    event_model->setHorizontalHeaderItem(1, new QStandardItem(QObject::tr("采集时间")));
+    event_model->setHorizontalHeaderItem(2, new QStandardItem(QObject::tr("类型")));
+    event_model->setHorizontalHeaderItem(3, new QStandardItem(QObject::tr("描述")));
+    this->ui->tableViewEvent->setModel(event_model);
+
+    //电压数据表头
+    voltageData_model = new QStandardItemModel();
+    voltageData_model->setHorizontalHeaderItem(0, new QStandardItem(QObject::tr("监测点号")));
+    voltageData_model->setHorizontalHeaderItem(1, new QStandardItem(QObject::tr("采集时间")));
+    voltageData_model->setHorizontalHeaderItem(2, new QStandardItem(QObject::tr("电压值")));
+    ui->tableViewVoltageData->setModel(voltageData_model);
+
+    //月统计表头
+    monthStatistical_model = new QStandardItemModel();
+    monthStatistical_model->setHorizontalHeaderItem(0, new QStandardItem(QObject::tr("监测点号")));
+    monthStatistical_model->setHorizontalHeaderItem(1, new QStandardItem(QObject::tr("采集时间")));
+    monthStatistical_model->setHorizontalHeaderItem(2, new QStandardItem(QObject::tr("电压合格率(%)")));
+    monthStatistical_model->setHorizontalHeaderItem(3, new QStandardItem(QObject::tr("电压越上限率(%)")));
+    monthStatistical_model->setHorizontalHeaderItem(4, new QStandardItem(QObject::tr("电压越下限率(%)")));
+    monthStatistical_model->setHorizontalHeaderItem(5, new QStandardItem(QObject::tr("电压统计时间(分钟)")));
+    monthStatistical_model->setHorizontalHeaderItem(6, new QStandardItem(QObject::tr("电压合格时间(分钟)")));
+    monthStatistical_model->setHorizontalHeaderItem(7, new QStandardItem(QObject::tr("电压越上限时间(分钟)")));
+    monthStatistical_model->setHorizontalHeaderItem(8, new QStandardItem(QObject::tr("电压越下线时间(分钟)")));
+    monthStatistical_model->setHorizontalHeaderItem(9, new QStandardItem(QObject::tr("电压平均值(V)")));
+    monthStatistical_model->setHorizontalHeaderItem(10, new QStandardItem(QObject::tr("电压最小值(V)")));
+    monthStatistical_model->setHorizontalHeaderItem(11, new QStandardItem(QObject::tr("电压最小值发生时间")));
+    monthStatistical_model->setHorizontalHeaderItem(12, new QStandardItem(QObject::tr("电压最大值(V)")));
+    monthStatistical_model->setHorizontalHeaderItem(13, new QStandardItem(QObject::tr("电压最大值发生时间")));
+    ui->tableViewMonthStatistical->setModel(monthStatistical_model);
+
+    //日统计表头
+    dailyStatistical_model = new QStandardItemModel();
+    dailyStatistical_model->setHorizontalHeaderItem(0, new QStandardItem(QObject::tr("监测点号")));
+    dailyStatistical_model->setHorizontalHeaderItem(1, new QStandardItem(QObject::tr("采集时间")));
+    dailyStatistical_model->setHorizontalHeaderItem(2, new QStandardItem(QObject::tr("电压合格率(%)")));
+    dailyStatistical_model->setHorizontalHeaderItem(3, new QStandardItem(QObject::tr("电压越上限率(%)")));
+    dailyStatistical_model->setHorizontalHeaderItem(4, new QStandardItem(QObject::tr("电压越下限率(%)")));
+    dailyStatistical_model->setHorizontalHeaderItem(5, new QStandardItem(QObject::tr("电压统计时间(分钟)")));
+    dailyStatistical_model->setHorizontalHeaderItem(6, new QStandardItem(QObject::tr("电压合格时间(分钟)")));
+    dailyStatistical_model->setHorizontalHeaderItem(7, new QStandardItem(QObject::tr("电压越上限时间(分钟)")));
+    dailyStatistical_model->setHorizontalHeaderItem(8, new QStandardItem(QObject::tr("电压越下线时间(分钟)")));
+    dailyStatistical_model->setHorizontalHeaderItem(9, new QStandardItem(QObject::tr("电压平均值(V)")));
+    dailyStatistical_model->setHorizontalHeaderItem(10, new QStandardItem(QObject::tr("电压最小值(V)")));
+    dailyStatistical_model->setHorizontalHeaderItem(11, new QStandardItem(QObject::tr("电压最小值发生时间")));
+    dailyStatistical_model->setHorizontalHeaderItem(12, new QStandardItem(QObject::tr("电压最大值(V)")));
+    dailyStatistical_model->setHorizontalHeaderItem(13, new QStandardItem(QObject::tr("电压最大值发生时间")));
+    ui->tableViewDailyStatistical->setModel(dailyStatistical_model);
+
+//    double dd=196.789;
+//    qDebug()<<byteToHexStr(doubleToVoltageEligibilityRate(dd),3);
+//    BYTE *ss=new BYTE[3];
+//    ss[0]=137;
+//    ss[1]=103;
+//    ss[2]=25;
+//    qDebug()<<VoltageEligibilityRateToDouble(ss);
+}
+
+//将Byte电压合格率数据格式转化为double
+double MainWindow::VoltageEligibilityRateToDouble(BYTE* dd)
+{
+    return ((float)(byteToint(dd)))/1000+((float)(((dd+1)[0])&0x0f))/10+(((dd+1)[0])>>4)+(byteToint(dd+2))*10;
+}
+
+//将double电压合格率转化为BYTE
+BYTE *MainWindow::doubleToVoltageEligibilityRate(double dd)
+{
+    BYTE *bpVolEliPate=new BYTE[4];
+
+    QString sdd=QString::number(dd,'g',8);
+    int inte=0;
+    //处理小数
+    qDebug()<<sdd;
+    int theUnit=0;//个位
+    if(sdd.indexOf('.')==-1)
+    {
+        bpVolEliPate[0]=0x00;
+        inte=dd;
+        theUnit=0;
+    }
+    else
+    {
+        QStringList ss=sdd.split('.');
+        int decimal=ss.at(1).toInt();
+        inte=ss.at(0).toInt();
+
+        if(decimal >= 100)//小数点后3位
+        {
+        memcpy(bpVolEliPate,int2ToBYTE(decimal%100),1);
+        theUnit=decimal/100;
+        }
+        else if(decimal < 100)
+        {
+            if(decimal < 10)//小数点后1位
+            {
+                bpVolEliPate[0]=0x00;
+                theUnit=decimal;
+            }
+            else//小数点后2位
+            {
+                memcpy(bpVolEliPate,int2ToBYTE(((decimal%10)*10)),1);
+                theUnit=decimal/10;
+            }
+        }
+    }
+    memcpy(bpVolEliPate+1,int2ToBYTE(((inte%10)*10)+theUnit),1);
+    inte=inte/10;
+    memcpy(bpVolEliPate+2,int2ToBYTE(inte%100),1);
+
+    return bpVolEliPate;
+}
+
+//将Byte电压值数据格式转化为double
+double MainWindow::VoltageToDouble(BYTE* dd)
+{
+    return ((float)(byteToint(dd)))/100+byteToint(dd+1)+byteToint(dd+2)*100+byteToint(dd+3)*10000;
+}
+
+//将一个byte电压值数据格式转化为int
+int MainWindow::byteToint(BYTE *byte)
+{
+    return (byte[0]>>4)*10+(int)(byte[0]&0x0f);
+}
+
+int MainWindow::byte2ToInt(BYTE *byte)
+{
+    return 1;//QString::number()
+}
+
+//将double转化为电压值数据格式
+BYTE* MainWindow::doubleToVoltage(double dd)
+{
+    BYTE *bpVol=new BYTE[4];
+
+    QString sdd=QString::number(dd,'g',8);
+    int inte=0;
+    //处理小数
+    qDebug()<<sdd;
+    if(sdd.indexOf('.')==-1)
+    {
+        bpVol[0]=0x00;
+        inte=dd;
+    }
+    else
+    {
+        QStringList ss=sdd.split('.');
+        int decimal=ss.at(1).toInt();
+        inte=ss.at(0).toInt();
+        //bpVol[0]=decimal/10*qPow(2,4)+decimal%10;
+        memcpy(bpVol,int2ToBYTE(decimal),1);
+        //qDebug()<<byteToHexStr(bpVol,1);
+    }
+    memcpy(bpVol+1,int2ToBYTE(inte%100),1);
+    inte=inte/100;
+    memcpy(bpVol+2,int2ToBYTE(inte%100),1);
+    inte=inte/100;
+    memcpy(bpVol+3,int2ToBYTE(inte%100),1);
+    inte=inte/100;
+    return bpVol;
+}
+
+//将int转化为电压值数据格式
+BYTE *MainWindow::int2ToBYTE(int ii)
+{
+    BYTE *bp=new BYTE;
+    *bp=ii/10*qPow(2,4)+ii%10;
+    return bp;
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+void MainWindow::showTime()
+{
+    QDateTime time=QDateTime::currentDateTime();
+    QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+    ui->lcdNumber->display(txtTime);
+
+}
+
+void MainWindow::on_pushButtonOpen_clicked()
+{
+    if(btnGroupConn->checkedId()==0)//tcp
+    {
+        if(m_openFlag)
+        {
+            m_server->close();
+            m_openFlag=false;
+        }
+        else
+        {
+            if(m_server->init(ui->spinBoxPort->text().toInt())==-1)
+            {
+                qDebug()<<"start server fail!";
+                m_openFlag=false;
+            }
+            else
+            {
+                m_openFlag=true;
+            }
+        }
+
+    }
+    else if(btnGroupConn->checkedId()==1)//serial
+    {
+        if(m_openFlag)
+        {
+            m_serial->close();
+            m_openFlag=false;
+        }
+        else
+        {
+            if(m_serial->init((QSerialPort::BaudRate)ui->comboBoxBitrate->currentData().toInt(),
+                              (QSerialPort::DataBits)ui->comboBoxDataBit->currentData().toInt(),
+                              (QSerialPort::Parity)ui->comboBoxVerify->currentData().toInt(),
+                              (QSerialPort::StopBits)ui->comboBoxStopBit->currentData().toInt(),
+                              ui->comboBoxSerial->currentText()
+                              )==-1)
+            {
+                qDebug()<<"start serial fail!";
+
+                m_openFlag=false;
+            }
+            else
+            {
+
+                m_openFlag=true;
+            }
+        }
+    }
+    changeState();//改变图标、文字状态
+
+}
+
+void MainWindow::onRadioClick()
+{
+    switch(btnGroupConn->checkedId())
+    {
+    case 0:
+        ui->groupBoxSerialParam->setVisible(false);
+        ui->groupBoxTCPParam->setVisible(true);
+        m_serial->close();
+        break;
+    case 1:
+        ui->groupBoxSerialParam->setVisible(true);
+        ui->groupBoxTCPParam->setVisible(false);
+        m_server->close();
+        break;
+    }
+    m_openFlag=false;
+    changeState();
+}
+
+void MainWindow::slotReadBegin()
+{    
+    QPixmap pixmap(":/images/redlight.png");
+    ui->labelReadLight->setPixmap(pixmap);
+    QTime t;
+    t.start();
+    while(t.elapsed()<100)
+        QCoreApplication::processEvents();
+}
+
+void MainWindow::slotreadEnd()
+{    
+    QPixmap pixmap(":/images/graylight.png");
+    ui->labelReadLight->setPixmap(pixmap);
+}
+
+QString MainWindow::byteToHexStr(BYTE *b, int length)
+{
+    QString stmp="";
+
+    for (int n=0;n<length;n++)
+    {
+        QString tmp = QString::number(b[n]&0xff,16);
+        stmp.append((tmp.length()==1)? "0"+tmp : tmp);
+    }
+    return stmp.toUpper().trimmed();
+}
+
+//处理装置基本信息
+void MainWindow::handleDeviceInfo(BYTE *protocol)
+{
+    char *buff=new char[21];
+    memset(buff,'\0',21);
+    memcpy(buff,protocol+24,10);
+
+    this->ui->labelVMDModel->text()=QString(buff);
+    memset(buff,'\0',21);
+
+    qDebug()<<getStringFromProtocol(protocol+34);
+    this->ui->labelHardwareVersion->text()=getStringFromProtocol(protocol+34);
+    this->ui->labelSoftwareVersion->text()=getStringFromProtocol(protocol+38);
+    this->ui->labelProtocolVersion->text()=getStringFromProtocol(protocol+42);
+
+    memcpy(buff,protocol+46,20);
+    this->ui->labelManufacturer->text()=QString(buff);
+    memset(buff,'\0',21);
+
+    qint64 time=getTimeFromByte(protocol+66);
+    this->ui->labelProductionDate->text()=QDateTime::fromMSecsSinceEpoch(time*1000).toString("yyyy-MM-dd hh:mm:ss");
+
+    memcpy(buff,protocol+70,20);
+    this->ui->labelIdentifier->text()=QString(buff);
+    memset(buff,'\0',21);
+
+    memcpy(buff,protocol+90,15);
+    this->ui->labelVMDModel->text()=QString(buff);
+    memset(buff,'\0',21);
+
+    memcpy(buff,protocol+105,11);
+    this->ui->labelVMDModel->text()=QString(buff);
+    memset(buff,'\0',21);
+}
+
+QString MainWindow::getStringFromProtocol(BYTE *protocol)
+{
+    QString str;int i;
+    str=QString::number((protocol[0]&0xff),16);
+    str+='.';
+    str+=QString::number((protocol[1]&0xff),16);
+    str+='.';
+    str+=QString::number((protocol[2]&0xff),16);
+    str+='.';
+    str+=QString::number((protocol[3]&0xff),16);
+    qDebug()<<str<<"  ===";
+    return str;
+}
+
+//处理时间
+void MainWindow::handleTime(BYTE *protocol)
+{
+    qint64 iTime=getTimeFromByte(protocol+25);
+    QString txtTime=QDateTime::fromMSecsSinceEpoch(iTime*1000).toString("yyyy-MM-dd hh:mm:ss");
+    ui->lcdNumberDeviceTime->display(txtTime);
+}
+
+//处理事件
+void MainWindow::handleEvent(BYTE *protocol)
+{
+    int iMeasurePointId=(int)(protocol[24]&0xff);
+    qint64 iTime1 = getTimeFromByte(protocol+25);
+    int oldRowCount=event_model->rowCount();
+
+    event_model->setItem(oldRowCount, 0, new QStandardItem(QString::number(iMeasurePointId)));
+    event_model->setItem(oldRowCount, 1, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime1*1000).toString("yyyy-MM-dd hh:mm:ss")));
+    event_model->setItem(oldRowCount, 2, new QStandardItem(getEventType((protocol+29)[0])));
+    event_model->setItem(oldRowCount, 3, new QStandardItem(QString((char*)(protocol+30))));
+}
+
+QString MainWindow::getEventType(BYTE type)
+{
+    QString eventType;
+    switch(type&0xff)
+    {
+    case 0x01:
+        eventType="停电";
+        break;
+    case 0x02:
+        eventType="上电";
+        break;
+    case 0x03:
+        eventType="越上限";
+        break;
+    case 0x04:
+        eventType="越上限回复";
+        break;
+    case 0x05:
+        eventType="越下限";
+        break;
+    case 0x06:
+        eventType="越下限回复";
+        break;
+    case 0x07:
+        eventType="复位";
+        break;
+    case 0x08:
+        eventType="其他";
+        break;
+    }
+    return eventType;
+}
+
+//处理月统计报
+void MainWindow::handleMonthStatistical(BYTE *protocol)
+{
+    int iMeasureDataNum=(int)(protocol[25]&0xff);
+    int iMeasurePointId=(int)(protocol[24]&0xff);
+
+    for(int i=0;i<iMeasureDataNum;i++)
+    {
+        qint64 iTime1 = getTimeFromByte(protocol+26+i*41);
+        monthStatistical_model->setItem(i, 0, new QStandardItem(QString::number(iMeasurePointId)));
+
+        monthStatistical_model->setItem(i, 1, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime1*1000).toString("yyyy-MM-dd hh:mm:ss")));
+        monthStatistical_model->setItem(i, 2, new QStandardItem(QString::number(VoltageEligibilityRateToDouble(protocol+30+i*41),'g',8)));
+        monthStatistical_model->setItem(i, 3, new QStandardItem(QString::number(VoltageEligibilityRateToDouble(protocol+33+i*41),'g',8)));
+        monthStatistical_model->setItem(i, 4, new QStandardItem(QString::number(VoltageEligibilityRateToDouble(protocol+36+i*41),'g',8)));
+
+        monthStatistical_model->setItem(i, 5, new QStandardItem(QString::number(((protocol+39+i*41)[0]+(protocol+39+i*41)[1]*qPow(16,2)))));
+        monthStatistical_model->setItem(i, 6, new QStandardItem(QString::number(((protocol+41+i*41)[0]+(protocol+41+i*41)[1]*qPow(16,2)))));
+        monthStatistical_model->setItem(i, 7, new QStandardItem(QString::number(((protocol+43+i*41)[0]+(protocol+43+i*41)[1]*qPow(16,2)))));
+        monthStatistical_model->setItem(i, 8, new QStandardItem(QString::number(((protocol+45+i*41)[0]+(protocol+45+i*41)[1]*qPow(16,2)))));
+
+        monthStatistical_model->setItem(i, 9, new QStandardItem(QString::number(VoltageToDouble(protocol+47+i*41),'g',8)));
+        monthStatistical_model->setItem(i, 10, new QStandardItem(QString::number(VoltageToDouble(protocol+51+i*41),'g',8)));
+        qint64 iTime2 = getTimeFromByte(protocol+55+i*41);
+        monthStatistical_model->setItem(i, 11, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime2*1000).toString("yyyy-MM-dd hh:mm:ss")));
+        monthStatistical_model->setItem(i, 12, new QStandardItem(QString::number(VoltageToDouble(protocol+59+i*41),'g',8)));
+        qint64 iTime3 = getTimeFromByte(protocol+63+i*41);
+        monthStatistical_model->setItem(i, 13, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime3*1000).toString("yyyy-MM-dd hh:mm:ss")));
+    }
+}
+
+//处理日统计报
+void MainWindow::handleDailyStatistical(BYTE *protocol)
+{
+    int iMeasureDataNum=(int)(protocol[25]&0xff);
+    int iMeasurePointId=(int)(protocol[24]&0xff);
+
+    //dailyStatistical_model->clear();
+    int oldRowCount=dailyStatistical_model->rowCount();
+    int newRowCount=oldRowCount+iMeasureDataNum;
+    for(int i=oldRowCount;i<newRowCount;i++)
+    {
+        qint64 iTime1 = getTimeFromByte(protocol+26+(i-oldRowCount)*41);
+        dailyStatistical_model->setItem(i, 0, new QStandardItem(QString::number(iMeasurePointId)));
+
+        dailyStatistical_model->setItem(i, 1, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime1*1000).toString("yyyy-MM-dd hh:mm:ss")));
+        dailyStatistical_model->setItem(i, 2, new QStandardItem(QString::number(VoltageEligibilityRateToDouble(protocol+30+(i-oldRowCount)*41),'g',8)));
+        dailyStatistical_model->setItem(i, 3, new QStandardItem(QString::number(VoltageEligibilityRateToDouble(protocol+33+(i-oldRowCount)*41),'g',8)));
+        dailyStatistical_model->setItem(i, 4, new QStandardItem(QString::number(VoltageEligibilityRateToDouble(protocol+36+(i-oldRowCount)*41),'g',8)));
+
+        dailyStatistical_model->setItem(i, 5, new QStandardItem(QString::number(((protocol+39+(i-oldRowCount)*41)[0]+(protocol+39+(i-oldRowCount)*41)[1]*qPow(16,2)))));
+        dailyStatistical_model->setItem(i, 6, new QStandardItem(QString::number(((protocol+41+(i-oldRowCount)*41)[0]+(protocol+41+(i-oldRowCount)*41)[1]*qPow(16,2)))));
+        dailyStatistical_model->setItem(i, 7, new QStandardItem(QString::number(((protocol+43+(i-oldRowCount)*41)[0]+(protocol+43+(i-oldRowCount)*41)[1]*qPow(16,2)))));
+        dailyStatistical_model->setItem(i, 8, new QStandardItem(QString::number(((protocol+45+(i-oldRowCount)*41)[0]+(protocol+45+(i-oldRowCount)*41)[1]*qPow(16,2)))));
+
+        dailyStatistical_model->setItem(i, 9, new QStandardItem(QString::number(VoltageToDouble(protocol+47+(i-oldRowCount)*41),'g',8)));
+        dailyStatistical_model->setItem(i, 10, new QStandardItem(QString::number(VoltageToDouble(protocol+51+(i-oldRowCount)*41),'g',8)));
+        qint64 iTime2 = getTimeFromByte(protocol+55+(i-oldRowCount)*41);
+        dailyStatistical_model->setItem(i, 11, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime2*1000).toString("yyyy-MM-dd hh:mm:ss")));
+        dailyStatistical_model->setItem(i, 12, new QStandardItem(QString::number(VoltageToDouble(protocol+59+(i-oldRowCount)*41),'g',8)));
+        qint64 iTime3 = getTimeFromByte(protocol+63+(i-oldRowCount)*41);
+        dailyStatistical_model->setItem(i, 13, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime3*1000).toString("yyyy-MM-dd hh:mm:ss")));
+    }
+
+}
+
+//从协议中获取时间
+qint64 MainWindow::getTimeFromByte(BYTE *protocol)
+{
+    qint64 iTime1 = (protocol[0]&0xff) + ((protocol[1])&0xff)*qPow(2,8) + ((protocol[2])&0xff)*qPow(2,16) + ((protocol[3])&0xff)*qPow(2,24);
+    return iTime1;
+}
+
+//处理电压数据报
+void MainWindow::handleVoltageData(BYTE *protocol)
+{
+    int iMeasureDataNum=(int)(protocol[25]&0xff);
+    int iMeasurePointId=(int)(protocol[24]&0xff);
+    qDebug()<<"Num:"<<iMeasureDataNum<<" id:"<<iMeasurePointId;
+
+    for(int i=0;i<iMeasureDataNum;i++)
+    {        
+        qint64 iTime1 = getTimeFromByte(protocol+26+i*8);
+        qDebug()<<QDateTime::fromMSecsSinceEpoch(iTime1*1000).toString("yyyy-MM-dd hh:mm:ss");
+        qDebug()<<QString::number(VoltageToDouble(&protocol[30+i*8]),'g',8);
+        voltageData_model->setItem(i, 0, new QStandardItem(QString::number(iMeasurePointId)));
+        voltageData_model->setItem(i, 1, new QStandardItem(QDateTime::fromMSecsSinceEpoch(iTime1*1000).toString("yyyy-MM-dd hh:mm:ss")));
+        voltageData_model->setItem(i, 2, new QStandardItem(QString::number(VoltageToDouble(&protocol[30+i*8]),'g',8)));
+
+        voltageData_model->item(i, 0)->setTextAlignment(Qt::AlignCenter);
+    }
+
+
+}
+
+void MainWindow::analysisProtocol(BYTE *protocol, int length)
+{
+    stProtocolHeader = (ProtocolHeader *)protocol;
+
+    switch(stProtocolHeader->Packet_Type[0]&0xff)
+    {
+    case 0x01:
+        //type="心跳数据报";
+        memcpy(deviceID,stProtocolHeader->Device_Code,17);
+        break;
+    case 0x04:
+        //type="电压数据报";
+        handleVoltageData(protocol);
+        break;
+    case 0x05:
+        //type="日统计数据报";
+        handleDailyStatistical(protocol);
+        break;
+    case 0x06:
+        //type="月统计数据报";
+        handleMonthStatistical(protocol);
+        break;
+    case 0xA1:
+       // type="数据请求报";
+        break;
+    case 0xA4:
+        //type="装置时间查询/设置";
+        handleTime(protocol);
+        break;
+    case 0xA6:
+        //type="装置通信参数查询/设置";
+        break;
+    case 0xA7:
+        //type="监测点参数查询/设置";
+        break;
+    case 0xA8:
+        //type="装置时间参数查询/设置";
+        break;
+    case 0xA9:
+        //type="装置所属CAC的信息查询/设置";
+        break;
+    case 0xAA:
+        //type="装置基本信息查询";
+        handleDeviceInfo(protocol);
+        break;
+    case 0xAB:
+        //type="装置工作状态信息查询";
+        break;
+    case 0xAC:
+        //type="装置通信流量信息查询";
+        break;
+    case 0xAD:
+        //type="装置ID查询/设置";
+        break;
+    case 0xAE:
+        //type="装置复位";
+        break;
+    case 0xAF:
+        //type="装置调试命令交互";
+        break;
+    case 0xC1:
+        //type="流量数据报";
+        break;
+    case 0xC4:
+        //type="事件信息报";
+        handleEvent(protocol);
+        break;
+    case 0xC7:
+        //type="升级启动数据报";
+        break;
+    case 0xC8:
+        //type="升级过程数据报";
+        break;
+    case 0xC9:
+        //type="升级结束数据报";
+        break;
+    default:
+        ;
+    }
+}
+
+void MainWindow::slotRevData(BYTE *ba, int length)
+{
+    analysisProtocol(ba,length);
+    QDateTime time=QDateTime::currentDateTime();
+    QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+    char deviceID[18]={'\0'};
+    memcpy(deviceID,stProtocolHeader->Device_Code,17);
+
+    this->ui->textEditData->insertPlainText(txtTime + " 收到设备" + deviceID + "帧类型：" + getFrameType(stProtocolHeader) + " 报文类型：" +getPacketType(ba)+ "\n" + byteToHexStr(ba,length)+"\n\r");
+    responseProtocol();
+}
+
+void MainWindow::responseProtocol()
+{
+    switch(stProtocolHeader->Packet_Type[0]&0xff)
+    {
+    case 0x01:
+        //type="心跳数据报";
+        responseHeartBeat(stProtocolHeader);
+        break;
+    case 0x04:
+        //type="电压数据报";
+        responseVoltageData(stProtocolHeader);
+        break;
+    case 0x05:
+        //type="日统计数据报";
+        responseDailyStatistical(stProtocolHeader);
+        break;
+    case 0x06:
+        //type="月统计数据报";
+        responseMonthStatistical(stProtocolHeader);
+        break;
+    case 0xA1:
+        //type="数据请求报";
+        break;
+    case 0xA4:
+        //type="装置时间查询/设置";
+        break;
+    case 0xA6:
+        //type="装置通信参数查询/设置";
+        break;
+    case 0xA7:
+        //type="监测点参数查询/设置";
+        break;
+    case 0xA8:
+        //type="装置时间参数查询/设置";
+        break;
+    case 0xA9:
+        //type="装置所属CAC的信息查询/设置";
+        break;
+    case 0xAA:
+        //type="装置基本信息查询";
+        break;
+    case 0xAB:
+        //type="装置工作状态信息查询";
+        break;
+    case 0xAC:
+        //type="装置通信流量信息查询";
+        break;
+    case 0xAD:
+        //type="装置ID查询/设置";
+        break;
+    case 0xAE:
+        //type="装置复位";
+        break;
+    case 0xAF:
+        //type="装置调试命令交互";
+        break;
+    case 0xC1:
+        //type="流量数据报";
+        break;
+    case 0xC4:
+        //type="事件信息报";
+        responseEvent(stProtocolHeader);
+        break;
+    case 0xC7:
+        //type="升级启动数据报";
+        break;
+    case 0xC8:
+        //type="升级过程数据报";
+        break;
+    case 0xC9:
+        //type="升级结束数据报";
+        break;
+    default:
+        ;
+    }
+}
+
+//回复事件
+void MainWindow::responseEvent(ProtocolHeader *header)
+{
+    BYTE res[29]={'\0'};
+    memcpy(res,header,25);
+
+    res[0]=0xA5&0xff;//报文头低位
+    res[1]=0x5A&0xff;//报文头高位
+    res[3]=0x02&0xff;//报文长度低位
+    res[4]=0x00&0xff;//报文长度高位
+    res[21]=0x0c&0xff;//帧类型
+
+    res[25]=255&0xff;//发送状态
+    BYTE *crc=RTU_CRC(res+2,24);
+    memcpy(res+26,crc,2);
+    res[28]=(BYTE)(150&0xff);//报文尾
+    if(m_server->writeMessage((char*)res,29)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,header->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)res) + " 报文类型："+getPacketType(res)+"\n" + byteToHexStr(res,29)+"\n\r");
+    }
+}
+
+//回复月统计
+void MainWindow::responseMonthStatistical(ProtocolHeader *header)
+{
+    BYTE res[29]={'\0'};
+    memcpy(res,header,25);
+
+    res[0]=0xA5&0xff;//报文头低位
+    res[1]=0x5A&0xff;//报文头高位
+    res[3]=0x02&0xff;//报文长度低位
+    res[4]=0x00&0xff;//报文长度高位
+    res[21]=0x04&0xff;//帧类型
+
+    res[25]=255&0xff;//发送状态
+    BYTE *crc=RTU_CRC(res+2,24);
+    memcpy(res+26,crc,2);
+    res[28]=(BYTE)(150&0xff);
+    if(m_server->writeMessage((char*)res,29)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,header->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)res) + " 报文类型："+getPacketType(res)+"\n" + byteToHexStr(res,29)+"\n\r");
+    }
+}
+
+//回复日统计
+void MainWindow::responseDailyStatistical(ProtocolHeader *header)
+{
+    BYTE res[29]={'\0'};
+    memcpy(res,header,25);
+
+    res[0]=0xA5&0xff;//报文头低位
+    res[1]=0x5A&0xff;//报文头高位
+    res[3]=0x02&0xff;//报文长度低位
+    res[4]=0x00&0xff;//报文长度高位
+    res[21]=0x04&0xff;//帧类型
+
+    res[25]=255&0xff;//发送状态
+    BYTE *crc=RTU_CRC(res+2,24);
+    memcpy(res+26,crc,2);
+    res[28]=(BYTE)(150&0xff);
+    if(m_server->writeMessage((char*)res,29)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,header->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)res) + " 报文类型："+getPacketType(res)+"\n" + byteToHexStr(res,29)+"\n\r");
+    }
+}
+
+//回复电压数据报
+void MainWindow::responseVoltageData(ProtocolHeader *header)
+{
+    BYTE res[29]={'\0'};
+    memcpy(res,header,25);
+
+    res[0]=0xA5&0xff;//报文头低位
+    res[1]=0x5A&0xff;//报文头高位
+    res[3]=0x02&0xff;//报文长度低位
+    res[4]=0x00&0xff;//报文长度高位
+    res[21]=0x04&0xff;//帧类型
+
+    res[25]=255&0xff;//发送状态
+    BYTE *crc=RTU_CRC(res+2,24);
+    memcpy(res+26,crc,2);
+    res[28]=(BYTE)(150&0xff);
+    if(m_server->writeMessage((char*)res,29)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,header->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)res) + " 报文类型："+getPacketType(res)+"\n" + byteToHexStr(res,29)+"\n\r");
+    }
+}
+
+BYTE *MainWindow::getCurrentTime()
+{
+    BYTE *time=new BYTE[4];
+    memset(time,'\0',4);
+    qint64 iTimeDiff=(QDateTime(QDate(1970,1,1),QTime(0,0),Qt::OffsetFromUTC)).secsTo(QDateTime::currentDateTime());
+    qDebug()<<"second:"<<iTimeDiff;
+    qDebug()<<QString::number(iTimeDiff,16);
+    time[0] = (BYTE)(iTimeDiff&0xFF); //设置为当前时间
+    time[1] = (BYTE)((iTimeDiff >>8)&0xFF);
+    time[2] = (BYTE)((iTimeDiff >>16)&0xFF);
+    time[3] = (BYTE)((iTimeDiff >>24)&0xFF);
+    return time;
+}
+void MainWindow::responseHeartBeat(ProtocolHeader *header)
+{
+    BYTE res[32]={'\0'};
+    memcpy(res,header,sizeof(ProtocolHeader));
+
+    res[0]=0xA5&0xff;//报文头低位
+    res[1]=0x5A&0xff;//报文头高位
+    res[3]=0x05&0xff;//报文长度低位
+    res[4]=0x00&0xff;//报文长度高位
+    res[21]=0x02&0xff;//帧类型
+    res[24]=255&0xff;//发送状态
+
+    qint64 iTimeDiff=(QDateTime(QDate(1970,1,1),QTime(0,0),Qt::OffsetFromUTC)).secsTo(QDateTime::currentDateTime());
+    qDebug()<<"second:"<<iTimeDiff;
+    qDebug()<<QString::number(iTimeDiff,16);
+    res[25] = (BYTE)(iTimeDiff&0xFF); //设置为当前时间
+    res[26] = (BYTE)((iTimeDiff >>8)&0xFF);
+    res[27] = (BYTE)((iTimeDiff >>16)&0xFF);
+    res[28] = (BYTE)((iTimeDiff >>24)&0xFF);
+    BYTE *crc=RTU_CRC(res+2,27);
+    memcpy(res+29,crc,2);
+    res[31]=(BYTE)(150&0xff);
+    if(m_server->writeMessage((char*)res,32)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,header->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)res) + " 报文类型："+getPacketType(res)+"\n" + byteToHexStr(res,32)+"\n\r");
+    }
+}
+
+QString MainWindow::getPacketType(BYTE *protocol)
+{
+    QString type;
+    switch(((ProtocolHeader *)protocol)->Packet_Type[0]&0xff)
+    {
+    case 0x01:
+        type = "心跳数据报";
+        break;
+    case 0x04:
+        type = "电压数据报";
+        break;
+    case 0x05:
+        type = "日统计数据报";
+        break;
+    case 0x06:
+        type = "月统计数据报";
+        break;
+    case 0xA1:
+        type = "数据请求报";
+        break;
+    case 0xA4:
+        type = "装置时间查询/设置";
+        if((int)(protocol[24]&0xff) == 0x00)
+        {
+            type = "装置时间查询";
+        }
+        else
+        {
+            type = "装置时间设置";
+            if((int)(protocol[21]&0xff)%2 == 0)//响应数据报  装置==>CAC
+            {
+                type="装置时间";
+            }
+//            else
+//            {
+//                type="装置时间设置";
+//            }
+        }
+        break;
+    case 0xA6:
+        type = "装置通信参数查询/设置";
+        if((int)(protocol[24]&0xff) == 0x00)
+        {
+            type = "装置通信参数查询";
+        }
+        else
+        {
+            type = "装置通信参数设置";
+        }
+        break;
+    case 0xA7:
+        type = "监测点参数查询/设置";
+        if((int)(protocol[25]&0xff) == 0x00)
+        {
+            type = "监测点参数查询";
+        }
+        else
+        {
+            type = "监测点参数设置";
+        }
+        break;
+    case 0xA8:
+        type = "装置时间参数查询/设置";
+        if((int)(protocol[24]&0xff) == 0x00)
+        {
+            type = "装置时间参数查询";
+        }
+        else
+        {
+            type = "装置时间参数设置";
+        }
+        break;
+    case 0xA9:
+        type = "装置所属CAC的信息查询/设置";
+        if((int)(protocol[24]&0xff) == 0x00)
+        {
+            type = "装置所属CAC的信息查询";
+        }
+        else
+        {
+            type = "装置所属CAC的信息设置";
+        }
+        break;
+    case 0xAA:
+        type = "装置基本信息查询";
+        break;
+    case 0xAB:
+        type = "装置工作状态信息查询";
+        break;
+    case 0xAC:
+        type = "装置通信流量信息查询";
+        break;
+    case 0xAD:
+        type = "装置ID查询/设置";
+        break;
+    case 0xAE:
+        type = "装置复位";
+        break;
+    case 0xAF:
+        type = "装置调试命令交互";
+        break;
+    case 0xC1:
+        type = "流量数据报";
+        break;
+    case 0xC4:
+        type = "事件信息报";
+        break;
+    case 0xC7:
+        type = "升级启动数据报";
+        break;
+    case 0xC8:
+        type = "升级过程数据报";
+        break;
+    case 0xC9:
+        type = "升级结束数据报";
+        break;
+    default:
+        ;
+    }
+    return type;
+
+}
+
+QString MainWindow::getFrameType(ProtocolHeader *header)
+{
+    QString type;
+    //将接收到的header复制到确认header中以便发送
+    memcpy(stSndProtocolHeader,stProtocolHeader,sizeof(ProtocolHeader));
+    switch(header->Frame_Type[0]&0xff)
+    {
+    case 0x01:
+        type="心跳数据报文";
+        break;
+    case 0x02:
+        type="心跳数据确认报文";
+        break;
+    case 0x03:
+        type="监测数据报文";
+        break;
+    case 0x04:
+        type="监测数据确认报文";
+        break;
+    case 0x05:
+        type="数据请求报文";
+        break;
+    case 0x06:
+        type="数据请求确认报文";
+        break;
+    case 0x07:
+        type="配置/状态交互数据报文";
+        break;
+    case 0x08:
+        type="配置/状态交互响应报文";
+        break;
+    case 0x09:
+        type="流量数据报文";
+        break;
+    case 0x10:
+        type="流量数据确认报文";
+        break;
+    case 0x11:
+        type="事件信息报文";
+        break;
+    case 0x12:
+        type="事件信息确认报文";
+        break;
+    case 0x13:
+        type="远程升级数据报文";
+        break;
+    case 0x14:
+        type="远程升级数据确认报文";
+        break;
+    default:
+        ;
+    }
+    return type;
+}
+
+void MainWindow::changeState()
+{
+    if(m_openFlag)//设置显示在按钮上的字 ‘打开‘  ’关闭‘
+    {
+        ui->pushButtonOpen->setText("关闭");
+        QPixmap pixmap(":/images/greenlight.png");
+        ui->labelOpenClose->setPixmap(pixmap);
+    }
+    else
+    {
+        ui->pushButtonOpen->setText("打开");
+        QPixmap pixmap(":/images/redlight.png");
+        ui->labelOpenClose->setPixmap(pixmap);
+    }
+}
+
+void MainWindow::on_pushButtonQueryTime_clicked()
+{
+    BYTE *queryTime=new BYTE[32];
+    queryTime[0]=0xA5&0xff;//报文头低位
+    queryTime[1]=0x5A&0xff;//报文头高位
+    queryTime[2]=0x05&0xff;//报文长度低字节
+    queryTime[3]=0x00&0xff;//报文长度高字节
+    memcpy(queryTime+4,deviceID,17);//设备ID
+    queryTime[21]=0x07&0xff;//帧类型
+    queryTime[22]=0xa4&0xff;//报文类型
+    queryTime[23]=0x01&0xff;//帧序列号
+    queryTime[24]=0x00&0xff;//参数配置类型标志
+    memcpy(queryTime+25,getCurrentTime(),4);//设置时间
+    memcpy(queryTime+29,RTU_CRC(queryTime+2,27),2);
+    queryTime[31]=0x96&0xff;
+
+    this->ui->tabWidget->setCurrentIndex(3);//切换tab
+
+    if(m_server->writeMessage((char*)queryTime,32)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,((ProtocolHeader*)queryTime)->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)queryTime) + " 报文类型："+getPacketType(queryTime)+"\n" + byteToHexStr(queryTime,29)+"\n\r");
+    }
+}
+
+void MainWindow::on_pushButtonSetTime_clicked()
+{
+    BYTE *queryTime=new BYTE[32];
+    queryTime[0]=0xA5&0xff;//报文头低位
+    queryTime[1]=0x5A&0xff;//报文头高位
+    queryTime[2]=0x05&0xff;//报文长度低字节
+    queryTime[3]=0x00&0xff;//报文长度高字节
+    memcpy(queryTime+4,deviceID,17);//设备ID
+    queryTime[21]=0x07&0xff;//帧类型
+    queryTime[22]=0xa4&0xff;//报文类型
+    queryTime[23]=0x01&0xff;//帧序列号
+    queryTime[24]=0x01&0xff;//参数配置类型标志
+    memcpy(queryTime+25,getCurrentTime(),4);//设置时间
+    memcpy(queryTime+29,RTU_CRC(queryTime+2,27),2);
+    queryTime[31]=0x96&0xff;
+
+    this->ui->tabWidget->setCurrentIndex(3);//切换tab
+
+    if(m_server->writeMessage((char*)queryTime,32)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,((ProtocolHeader*)queryTime)->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)queryTime) + " 报文类型："+getPacketType(queryTime)+"\n" + byteToHexStr(queryTime,29)+"\n\r");
+    }
+
+}
+
+void MainWindow::on_pushButtonClearRcv_clicked()
+{
+    this->ui->textEditData->clear();
+}
+
+void MainWindow::on_comboBoxConnMode_currentIndexChanged(const QString &arg1)
+{
+}
+
+void MainWindow::on_comboBoxConnMode_currentIndexChanged(int index)
+{
+    if(this->ui->comboBoxConnMode->currentData().toInt() == 0)//无线专网
+    {
+        this->ui->groupBoxWirelessConn->setVisible(true);
+        this->ui->groupBoxMessageConn->setVisible(false);
+    }
+    else//短信
+    {
+        this->ui->groupBoxWirelessConn->setVisible(false);
+        this->ui->groupBoxMessageConn->setVisible(true);
+    }
+}
+
+void MainWindow::on_pushButtonQueryConParam_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(4);
+}
+
+void MainWindow::on_pushButtonSetConParam_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(4);
+}
+
+void MainWindow::on_pushButtonQueryMeasureParam_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(4);
+}
+
+void MainWindow::on_pushButtonSetMeasureParam_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(4);
+}
+
+void MainWindow::on_pushButtonQueryCAC_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(3);
+}
+
+void MainWindow::on_pushButtonSetCAC_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(3);
+}
+
+void MainWindow::on_pushButtonQueryWorkState_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(3);
+}
+
+void MainWindow::on_pushButtonQueryID_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(3);
+}
+
+void MainWindow::on_pushButtonSetID_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(3);
+}
+
+void MainWindow::on_pushButtonDeviceReset_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(3);
+}
+
+void MainWindow::on_pushButtonSendCMD_clicked()
+{
+    this->ui->tabWidget->setCurrentIndex(3);
+}
+
+void MainWindow::on_pushButtonQueryDeviceInfo_clicked()
+{    
+
+    BYTE *deviceInfo=new BYTE[27];
+    deviceInfo[0]=0xA5&0xff;//报文头低位
+    deviceInfo[1]=0x5A&0xff;//报文头高位
+    deviceInfo[2]=0x00&0xff;//报文长度低字节
+    deviceInfo[3]=0x00&0xff;//报文长度高字节
+    memcpy(deviceInfo+4,deviceID,17);//设备ID
+    deviceInfo[21]=0x07&0xff;//帧类型
+    deviceInfo[22]=0xaa&0xff;//报文类型
+    deviceInfo[23]=0x06&0xff;//帧序列号
+
+    memcpy(deviceInfo+24,RTU_CRC(deviceInfo+2,22),2);
+    deviceInfo[26]=0x96&0xff;
+
+    this->ui->tabWidget->setCurrentIndex(5);//切换tab
+
+    if(m_server->writeMessage((char*)deviceInfo,27)!=-1)
+    {
+        QDateTime time=QDateTime::currentDateTime();
+        QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+        char deviceID[18]={'\0'};
+        memcpy(deviceID,((ProtocolHeader*)deviceInfo)->Device_Code,17);
+        this->ui->textEditData->insertPlainText(txtTime + " 向设备  " + deviceID + "发送帧类型：" + getFrameType((ProtocolHeader*)deviceInfo) + " 报文类型："+getPacketType(deviceInfo)+"\n" + byteToHexStr(deviceInfo,29)+"\n\r");
+    }
+}

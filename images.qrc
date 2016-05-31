@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>images/greenlight.png</file>
+        <file>images/redlight.png</file>
+        <file>images/graylight.png</file>
+    </qresource>
+</RCC>

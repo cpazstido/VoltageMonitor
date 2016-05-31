@@ -1,0 +1,289 @@
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),m_openFlag(false),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    ui->mainToolBar->hide();//影藏工具条不要
+
+    //单选按钮
+    btnGroupConn=new QButtonGroup(this);
+    btnGroupConn->addButton(ui->radioButtonTCP,0);
+    btnGroupConn->addButton(ui->radioButtonSerial,1);
+    ui->radioButtonSerial->setChecked(true);
+    ui->groupBoxSerialParam->setVisible(true);
+    ui->groupBoxTCPParam->setVisible(false);
+    connect(ui->radioButtonTCP, SIGNAL(clicked()), this, SLOT(onRadioClick()));
+    connect(ui->radioButtonSerial, SIGNAL(clicked()), this, SLOT(onRadioClick()));
+
+    //设置串口
+    int i=0;
+//    foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts()) {
+//        qDebug() << "Name        : " << info.portName();
+//        qDebug() << "Description : " << info.description();
+//        qDebug() << "Manufacturer: " << info.manufacturer();
+
+//        ui->comboBoxSerial->addItem(info.portName(), i);
+//        i++;
+//    }
+
+    //设置波特率
+    ui->comboBoxBitrate->addItem("1200",1200);
+    ui->comboBoxBitrate->addItem("2400",2400);
+    ui->comboBoxBitrate->addItem("4800",4800);
+    ui->comboBoxBitrate->addItem("9600",9600);
+
+    //数据位
+    ui->comboBoxDataBit->addItem("8",8);
+    ui->comboBoxDataBit->addItem("7",7);
+    ui->comboBoxDataBit->addItem("6",6);
+    ui->comboBoxDataBit->addItem("5",5);
+
+    //校验位
+    ui->comboBoxVerify->addItem("无",0);
+    ui->comboBoxVerify->addItem("奇",2);
+    ui->comboBoxVerify->addItem("偶",3);
+
+    //停止位
+    ui->comboBoxStopBit->addItem("1",1);
+    ui->comboBoxStopBit->addItem("2",2);
+
+    //设置时间
+    QTimer *timer=new QTimer(this);
+    //在界面上显示时间
+    connect(timer,SIGNAL(timeout()),this,SLOT(showTime()));
+    timer->start(500);
+
+    m_server=new TCPServer(this);
+    m_serial=new SerialCommunication(this);
+    connect(m_server,SIGNAL(readBegin()),this,SLOT(slotReadBegin()));
+    connect(m_server,SIGNAL(readEnd()),this,SLOT(slotreadEnd()));
+    connect(m_server,SIGNAL(signalSendData(BYTE *, int)),this,SLOT(slotRevData(BYTE *, int)));
+
+
+    connect(m_serial,SIGNAL(readBegin()),this,SLOT(slotReadBegin()));
+    connect(m_serial,SIGNAL(readEnd()),this,SLOT(slotreadEnd()));
+
+    stSndProtocolHeader=new ProtocolHeader;
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+void MainWindow::showTime()
+{
+    QDateTime time=QDateTime::currentDateTime();
+    QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+    ui->lcdNumber->display(txtTime);
+
+}
+
+void MainWindow::on_pushButtonOpen_clicked()
+{
+    if(btnGroupConn->checkedId()==0)//tcp
+    {
+        if(m_openFlag)
+        {
+            m_server->close();
+            m_openFlag=false;
+        }
+        else
+        {
+            if(m_server->init(ui->spinBoxPort->text().toInt())==-1)
+            {
+                qDebug()<<"start server fail!";
+                m_openFlag=false;
+            }
+            else
+            {
+                m_openFlag=true;
+            }
+        }
+
+    }
+    else if(btnGroupConn->checkedId()==1)//serial
+    {        
+        if(m_openFlag)
+        {
+            m_serial->close();
+            m_openFlag=false;
+        }
+        else
+        {
+            if(m_serial->init((QSerialPort::BaudRate)ui->comboBoxBitrate->currentData().toInt(),
+                              (QSerialPort::DataBits)ui->comboBoxDataBit->currentData().toInt(),
+                              (QSerialPort::Parity)ui->comboBoxVerify->currentData().toInt(),
+                              (QSerialPort::StopBits)ui->comboBoxStopBit->currentData().toInt(),
+                              ui->comboBoxSerial->currentText()
+                              )==-1)
+            {
+                qDebug()<<"start serial fail!";
+
+                m_openFlag=false;
+            }
+            else
+            {
+
+                m_openFlag=true;
+            }
+        }
+    }
+    changeState();//改变图标、文字状态
+
+}
+
+void MainWindow::onRadioClick()
+{
+    switch(btnGroupConn->checkedId())
+    {
+    case 0:
+        ui->groupBoxSerialParam->setVisible(false);
+        ui->groupBoxTCPParam->setVisible(true);
+        m_serial->close();
+        break;
+    case 1:
+        ui->groupBoxSerialParam->setVisible(true);
+        ui->groupBoxTCPParam->setVisible(false);
+        m_server->close();        
+        break;
+    }    
+    m_openFlag=false;
+    changeState();
+}
+
+void MainWindow::slotReadBegin()
+{    
+    QPixmap pixmap(":/images/redlight.png");
+    ui->labelReadLight->setPixmap(pixmap);
+    QTime t;
+    t.start();
+    while(t.elapsed()<100)
+        QCoreApplication::processEvents();
+}
+
+void MainWindow::slotreadEnd()
+{    
+    QPixmap pixmap(":/images/graylight.png");
+    ui->labelReadLight->setPixmap(pixmap);
+}
+
+QString MainWindow::byteToHexStr(BYTE *b, int length)
+{
+    QString stmp="";
+
+    for (int n=0;n<length;n++)
+    {
+        QString tmp = QString::number(b[n]&0xff,16);
+        stmp.append((tmp.length()==1)? "0"+tmp : tmp);
+    }
+    return stmp.toUpper().trimmed();
+}
+
+void MainWindow::analysisProtocol(BYTE *protocol, int length)
+{
+    stProtocolHeader = (ProtocolHeader *)protocol;
+    bProtocolBody = protocol + sizeof(ProtocolHeader);
+    iProtocolLen = length-27;
+}
+
+void MainWindow::slotRevData(BYTE *ba, int length)
+{
+    analysisProtocol(ba,length);
+    QDateTime time=QDateTime::currentDateTime();
+    QString txtTime=time.toString("yyyy-MM-dd hh:mm:ss");
+    BYTE deviceID[18]={'\0'};
+    memcpy(deviceID,stProtocolHeader->Device_Code,17);
+    this->ui->plainTextEditRcvData->appendHtml(txtTime + " 收到设备 " + deviceID + " " + getFrameType() + ":\n" + byteToHexStr(ba,length));
+}
+
+void MainWindow::responseHeartBeat(ProtocolHeader *header)
+{
+    BYTE res[33]={'\0'};
+    memcpy(res,header,sizeof(ProtocolHeader));
+    //QString tmp = QString::number(255&0xff,16);
+    res[24]=255&0xff;
+    qint64 iTimeDiff=(QDateTime(QDate(1970,1,1),QTime(0,0),Qt::OffsetFromUTC)).secsTo(QDateTime::currentDateTime());
+    qDebug()<<"second:"<<iTimeDiff;
+    qDebug()<<QString::number(iTimeDiff,16);
+    res[24] = (BYTE)(iTimeDiff&0xFF); //设置为当前时间
+    res[25] = (BYTE)((iTimeDiff >>8)&0xFF);
+    res[26] = (BYTE)((iTimeDiff >>16)&0xFF);
+    res[27] = (BYTE)((iTimeDiff >>24)&0xFF);
+    qDebug()<<res;
+    //m_server->writeMessage();
+}
+QString MainWindow::getFrameType()
+{
+    QString type;
+    //将接收到的header复制到确认header中以便发送
+    memcpy(stSndProtocolHeader,stProtocolHeader,sizeof(ProtocolHeader));
+    switch(stProtocolHeader->Frame_Type[0]&0xff)
+    {
+    case 0x01:
+        type="心跳数据报文";
+        responseHeartBeat(stSndProtocolHeader);
+        break;
+    case 0x02:
+        type="心跳数据确认报文";
+        break;
+    case 0x03:
+        type="检测数据报文";
+        break;
+    case 0x04:
+        type="检测数据确认报文";
+        break;
+    case 0x05:
+        type="数据请求报文";
+        break;
+    case 0x06:
+        type="数据请求确认报文";
+        break;
+    case 0x07:
+        type="配置/状态交互数据报文";
+        break;
+    case 0x08:
+        type="配置/状态交互响应报文";
+        break;
+    case 0x09:
+        type="流量数据报文";
+        break;
+    case 0x10:
+        type="流量数据确认报文";
+        break;
+    case 0x11:
+        type="事件信息报文";
+        break;
+    case 0x12:
+        type="事件信息确认报文";
+        break;
+    case 0x13:
+        type="远程升级数据报文";
+        break;
+    case 0x14:
+        type="远程升级数据确认报文";
+        break;
+    default:
+        ;
+    }
+    return type;
+}
+
+void MainWindow::changeState()
+{
+    if(m_openFlag)//设置显示在按钮上的字 ‘打开‘  ’关闭‘
+    {
+        ui->pushButtonOpen->setText("关闭");
+        QPixmap pixmap(":/images/greenlight.png");
+        ui->labelOpenClose->setPixmap(pixmap);
+    }
+    else
+    {
+        ui->pushButtonOpen->setText("打开");
+        QPixmap pixmap(":/images/redlight.png");
+        ui->labelOpenClose->setPixmap(pixmap);
+    }
+}
