@@ -10,7 +10,7 @@ TCPServer::TCPServer(QObject *parent) : QObject(parent),tcpSocket(NULL)
     memset(bRcvBuf,'\0',4096);
     iSearchStart=0;
     iRcvBufEnd=0;
-    int i=0;
+    int i=1;
 
 }
 
